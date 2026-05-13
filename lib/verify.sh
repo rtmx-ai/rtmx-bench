@@ -41,11 +41,18 @@ verify_outcome() {
         go_fail=$(grep -c -F -- '--- FAIL:' "$output_file" 2>/dev/null || true)
         go_fail=${go_fail:-0}
 
+        # Jest output: "Tests: N passed, N total" (must check before generic "N passed")
+        local jest_pass jest_fail
+        jest_pass=$(grep -E '^Tests:' "$output_file" 2>/dev/null | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' || true)
+        jest_pass=${jest_pass:-0}
+        jest_fail=$(grep -E '^Tests:' "$output_file" 2>/dev/null | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' || true)
+        jest_fail=${jest_fail:-0}
+
         # Python pytest output: "N passed", "N failed"
         local py_pass py_fail
-        py_pass=$(grep -oE '[0-9]+ passed' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || true)
+        py_pass=$(grep -oE '[0-9]+ passed' "$output_file" 2>/dev/null | tail -1 | grep -oE '[0-9]+' || true)
         py_pass=${py_pass:-0}
-        py_fail=$(grep -oE '[0-9]+ failed' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || true)
+        py_fail=$(grep -oE '[0-9]+ failed' "$output_file" 2>/dev/null | tail -1 | grep -oE '[0-9]+' || true)
         py_fail=${py_fail:-0}
 
         # Node/mocha output: "N passing", "N failing"
@@ -55,8 +62,11 @@ verify_outcome() {
         node_fail=$(grep -oE '[0-9]+ failing' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || true)
         node_fail=${node_fail:-0}
 
-        # Use whichever framework produced nonzero results
-        if [[ $((go_pass + go_fail)) -gt 0 ]]; then
+        # Use whichever framework produced nonzero results (Jest first, most specific)
+        if [[ $((jest_pass + jest_fail)) -gt 0 ]]; then
+            VERIFY_PASSED=$jest_pass
+            VERIFY_FAILED=$jest_fail
+        elif [[ $((go_pass + go_fail)) -gt 0 ]]; then
             VERIFY_PASSED=$go_pass
             VERIFY_FAILED=$go_fail
         elif [[ $((py_pass + py_fail)) -gt 0 ]]; then
