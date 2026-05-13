@@ -30,7 +30,7 @@ jobs:
 
       - name: Configure git identity for tests
         run: |
-          git config --global user.email "ci@rtmx.ai"
+          git config --global user.email "dev@rtmx.ai"
           git config --global user.name "rtmx-bench CI"
 
       - name: Make scripts executable
