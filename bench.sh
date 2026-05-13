@@ -169,14 +169,15 @@ execute_run() {
     local start_time
     start_time=$(date +%s)
 
-    # Run Claude Code with the prompt
+    # Run Claude Code with the prompt (from the working directory)
+    local prompt_text
+    prompt_text=$(cat "$prompt")
     local exit_code=0
-    claude --model "$model" \
-        --prompt-file "$prompt" \
+    (cd "$workdir" && claude --model "$model" \
+        -p "$prompt_text" \
         --output-format json \
-        --max-turns 50 \
-        --cwd "$workdir" \
-        > "$result_dir/transcript.json" 2>"$result_dir/stderr.log" || exit_code=$?
+        --max-budget-usd 5.00 \
+        > "$result_dir/transcript.json" 2>"$result_dir/stderr.log") || exit_code=$?
 
     local end_time
     end_time=$(date +%s)

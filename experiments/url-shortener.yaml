@@ -19,9 +19,11 @@ test_command: |
   elif [ -f go.mod ]; then
     go test ./...
   elif [ -f package.json ]; then
-    npm test
-  elif [ -f requirements.txt ] || [ -f pyproject.toml ]; then
-    python -m pytest
+    npm install --silent 2>/dev/null && npm test
+  elif [ -f requirements.txt ]; then
+    pip install -q -r requirements.txt 2>/dev/null && python -m pytest
+  elif [ -f pyproject.toml ]; then
+    pip install -q -e . 2>/dev/null && python -m pytest
   elif [ -f Cargo.toml ]; then
     cargo test
   else
