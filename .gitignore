@@ -1,0 +1,20 @@
+# Results (raw transcripts are large and may contain API keys)
+results/raw/
+results/charts/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

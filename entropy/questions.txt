@@ -1,0 +1,9 @@
+# Canonical project questions for navigability probing
+# REQ-ENTROPY-003: Navigability score measures file reads to answer questions
+# Each question is asked as a standalone probe session.
+
+What should I work on next in this project?
+What is the current project status and completion percentage?
+What are the dependencies between components in this project?
+What tests exist and what do they cover?
+What is the high-level architecture of this project?

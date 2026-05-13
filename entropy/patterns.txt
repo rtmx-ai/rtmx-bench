@@ -1,0 +1,34 @@
+# Intent-bearing filename patterns for scatter scoring
+# REQ-ENTROPY-001: Scatter score counts intent-bearing files
+# One glob pattern per line. Lines starting with # are comments.
+
+# Project-level documentation
+*README*
+*TODO*
+*REQUIREMENT*
+*ROADMAP*
+*PLAN*
+*BACKLOG*
+*CHANGELOG*
+*ARCHITECTURE*
+*DESIGN*
+*ADR*
+*DECISIONS*
+*CONTRIBUTING*
+
+# Agent/AI context files
+CLAUDE.md
+AGENTS.md
+COPILOT.md
+CURSOR.md
+.cursorrules
+.github/copilot-instructions.md
+
+# Issue and PR templates
+.github/ISSUE_TEMPLATE/*
+.github/PULL_REQUEST_TEMPLATE*
+
+# Documentation directories
+docs/**/*.md
+doc/**/*.md
+documentation/**/*.md

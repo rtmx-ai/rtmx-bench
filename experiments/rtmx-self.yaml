@@ -1,0 +1,19 @@
+# Experiment: Self-Referential (RTMX on RTMX)
+# REQ-EXP-003: Self-referential experiment replays RTMX development
+
+name: rtmx-self
+description: >
+  Self-referential experiment using the RTMX CLI codebase itself.
+  The agent implements a real feature (release gate command) that was
+  historically implemented with RTMX. This enables comparison against
+  ground truth development costs.
+
+repo: https://github.com/rtmx-ai/rtmx.git
+
+# Pin to the commit just before release gate was implemented
+# TODO: update with actual commit SHA once identified
+# commit_sha: TBD
+
+test_command: go test ./...
+
+setup_command: go mod download

@@ -1,0 +1,19 @@
+# Experiment: Brownfield (Existing Codebase)
+# REQ-EXP-002: Brownfield experiment tests navigation overhead
+
+name: brownfield
+description: >
+  Brownfield experiment where an agent modifies an unfamiliar existing
+  codebase. Three tasks of increasing complexity test whether RTMX
+  requirements reduce exploration overhead and enable amortization
+  across sequential tasks.
+
+repo: https://github.com/zserge/zs.git
+
+# Pin to a specific commit for reproducibility
+# TODO: update with stable commit SHA
+# commit_sha: TBD
+
+test_command: go test ./...
+
+setup_command: go mod download

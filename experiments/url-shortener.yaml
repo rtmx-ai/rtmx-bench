@@ -1,0 +1,33 @@
+# Experiment: URL Shortener (Greenfield)
+# REQ-EXP-001: Greenfield experiment tests planning overhead on empty repo
+
+name: url-shortener
+description: >
+  Greenfield experiment where an agent builds a complete URL shortener
+  from an empty repository. Tests whether RTMX planning overhead is
+  offset by more focused execution when there is no existing code to
+  navigate.
+
+# Empty repo -- no clone needed
+repo: none
+
+# The agent chooses the language, so we try common test commands
+# The agent should create a Makefile or equivalent, so we try make test first
+test_command: |
+  if [ -f Makefile ]; then
+    make test
+  elif [ -f go.mod ]; then
+    go test ./...
+  elif [ -f package.json ]; then
+    npm test
+  elif [ -f requirements.txt ] || [ -f pyproject.toml ]; then
+    python -m pytest
+  elif [ -f Cargo.toml ]; then
+    cargo test
+  else
+    echo "No test runner detected"
+    exit 1
+  fi
+
+# No setup needed for greenfield
+setup_command: ""

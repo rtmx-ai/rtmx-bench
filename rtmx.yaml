@@ -1,0 +1,24 @@
+project:
+  name: rtmx-bench
+  description: Benchmark harness for measuring agent token efficiency with structured requirements traceability
+  version: "0.1.0"
+  license: Apache-2.0
+
+rtm:
+  database: .rtmx/database.csv
+  requirements_dir: .rtmx/requirements
+  schema: core
+
+categories:
+  HARNESS:
+    description: Experiment execution and data capture
+    prefix: REQ-HARNESS
+  ENTROPY:
+    description: Knowledge entropy measurement
+    prefix: REQ-ENTROPY
+  EXP:
+    description: Experiment definitions
+    prefix: REQ-EXP
+  DATA:
+    description: Data format, reproducibility, and visualization
+    prefix: REQ-DATA
