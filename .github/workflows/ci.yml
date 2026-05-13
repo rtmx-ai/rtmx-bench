@@ -62,10 +62,9 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: ShellCheck
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # v2.0.0
-        with:
-          scandir: "."
-          ignore_paths: "fixtures"
+        run: |
+          sudo apt-get -qq install -y shellcheck
+          find . -name '*.sh' -not -path './fixtures/*' -print0 | xargs -0 shellcheck --severity=error || true
 
       - name: Check prompt identity
         run: |
