@@ -111,7 +111,10 @@ def parse_transcript(path: str) -> dict:
         if msg_type in ("assistant", "user") and "message" in raw:
             msg = raw["message"]
         elif msg_type == "result" and "usage" in raw:
-            # Final summary from stream-json -- authoritative token counts
+            # Use the first (main session) result -- stream-json may emit
+            # multiple result messages for sub-agents/tasks
+            if has_result_summary:
+                continue
             has_result_summary = True
             usage = raw.get("usage", {})
             cache_input = usage.get("cache_creation_input_tokens", 0) + \

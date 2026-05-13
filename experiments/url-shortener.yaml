@@ -21,9 +21,9 @@ test_command: |
   elif [ -f package.json ]; then
     npm install --silent 2>/dev/null && npm test
   elif [ -f requirements.txt ]; then
-    pip install -q -r requirements.txt 2>/dev/null && python -m pytest
+    pip3 install -q -r requirements.txt 2>/dev/null && python3 -m pytest
   elif [ -f pyproject.toml ]; then
-    pip install -q -e . 2>/dev/null && python -m pytest
+    pip3 install -q -e . 2>/dev/null && python3 -m pytest
   elif [ -f Cargo.toml ]; then
     cargo test
   else

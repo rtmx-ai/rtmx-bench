@@ -22,7 +22,8 @@ verify_outcome() {
     fi
 
     local exit_code=0
-    (cd "$workdir" && eval "$test_command") > "$output_file" 2>&1 || exit_code=$?
+    # Timeout after 120s to prevent hanging test processes (e.g. unclosed servers)
+    timeout 120 bash -c "cd \"$workdir\" && eval \"$test_command\"" > "$output_file" 2>&1 || exit_code=$?
 
     if [[ $exit_code -eq 0 ]]; then
         VERIFY_OUTCOME="PASS"

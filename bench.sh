@@ -145,6 +145,25 @@ rtm:
   requirements_dir: .rtmx/requirements
   schema: core
 YAML
+
+        # Create MCP config for RTMX server
+        local rtmx_bin
+        rtmx_bin=$(command -v rtmx 2>/dev/null || echo "")
+        if [[ -z "$rtmx_bin" ]]; then
+            echo "ERROR: rtmx binary not found (required for treatment condition)" >&2
+            return 1
+        fi
+        cat > "$workdir/.mcp.json" <<MCPJSON
+{
+  "mcpServers": {
+    "rtmx": {
+      "command": "$rtmx_bin",
+      "args": ["mcp-server"],
+      "cwd": "$workdir"
+    }
+  }
+}
+MCPJSON
     fi
 }
 
@@ -221,8 +240,10 @@ execute_run() {
         "$wall_clock" "$knowledge_entropy" \
         "results/raw/$experiment/$condition/$session_id"
 
-    # Preserve workdir for inspection
-    cp -r "$workdir" "$result_dir/workdir"
+    # Preserve workdir for inspection (exclude bulky dependency dirs)
+    rsync -a --exclude='node_modules' --exclude='.venv' --exclude='venv' \
+        --exclude='__pycache__' --exclude='target' \
+        "$workdir/" "$result_dir/workdir/"
 
     echo "  Outcome: $outcome | Tokens: $total_tokens | Time: ${wall_clock}s"
 }
