@@ -28,6 +28,11 @@ jobs:
       - name: Install analysis dependencies
         run: pip install -r analysis/requirements.txt
 
+      - name: Configure git identity for tests
+        run: |
+          git config --global user.email "ci@rtmx.ai"
+          git config --global user.name "rtmx-bench CI"
+
       - name: Make scripts executable
         run: chmod +x bench.sh entropy/*.sh lib/*.sh tests/*.sh
 
