@@ -33,12 +33,50 @@ def estimate_token_size(content: str) -> int:
     return max(1, len(content) // 4)
 
 
+def load_transcript(path: str):
+    """Load transcript from JSON array, single JSON object, or NDJSON (stream-json).
+
+    Returns a list of message dicts.
+    """
+    text = Path(path).read_text().strip()
+    if not text:
+        return []
+
+    # Try JSON array or single object first
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            if "messages" in data:
+                return data["messages"]
+            # Single summary object (--output-format json) -- wrap as list
+            return [data]
+        return []
+    except json.JSONDecodeError:
+        pass
+
+    # NDJSON (--output-format stream-json): one JSON object per line
+    messages = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            messages.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    if not messages:
+        raise json.JSONDecodeError("No valid JSON found", text, 0)
+    return messages
+
+
 def parse_transcript(path: str) -> dict:
     """Parse a Claude Code transcript and extract token metrics.
 
     Returns a dict with all token accounting fields.
     """
-    data = json.loads(Path(path).read_text())
+    messages = load_transcript(path)
 
     result = {
         "input_tokens": 0,
@@ -54,43 +92,56 @@ def parse_transcript(path: str) -> dict:
         "rtmx_tool_breakdown": {},
     }
 
-    # Handle different transcript formats
-    messages = []
-    if isinstance(data, list):
-        messages = data
-    elif isinstance(data, dict):
-        # Single response or wrapped format
-        if "messages" in data:
-            messages = data["messages"]
-        elif "usage" in data:
-            # Single message with usage
-            result["input_tokens"] = data["usage"].get("input_tokens", 0)
-            result["output_tokens"] = data["usage"].get("output_tokens", 0)
-            result["total_tokens"] = result["input_tokens"] + result["output_tokens"]
-            return result
-        elif "result" in data:
-            # Wrapped result format
-            messages = data.get("result", {}).get("messages", [])
-
     first_edit_seen = False
     files_read = set()  # Track files read to detect backtracks
+    has_result_summary = False
+    # Per-turn accumulators for planning/execution split
+    cumulative_input = 0
+    cumulative_output = 0
     cumulative_tokens_at_first_edit = 0
+    turn_count = 0
 
-    for msg in messages:
-        if not isinstance(msg, dict):
+    for raw in messages:
+        if not isinstance(raw, dict):
+            continue
+
+        # Normalize stream-json envelope: {"type":"assistant","message":{...}}
+        # vs. direct message format: {"role":"assistant","content":[...],"usage":{}}
+        msg_type = raw.get("type", "")
+        if msg_type in ("assistant", "user") and "message" in raw:
+            msg = raw["message"]
+        elif msg_type == "result" and "usage" in raw:
+            # Final summary from stream-json -- authoritative token counts
+            has_result_summary = True
+            usage = raw.get("usage", {})
+            cache_input = usage.get("cache_creation_input_tokens", 0) + \
+                usage.get("cache_read_input_tokens", 0)
+            result["input_tokens"] = usage.get("input_tokens", 0) + cache_input
+            result["output_tokens"] = usage.get("output_tokens", 0)
+            result["turns"] = raw.get("num_turns", turn_count)
+            continue
+        elif "role" in raw:
+            msg = raw
+        elif "usage" in raw and not msg_type:
+            # Bare usage dict (e.g. single message with no role/type)
+            usage = raw["usage"]
+            cumulative_input += usage.get("input_tokens", 0)
+            cumulative_output += usage.get("output_tokens", 0)
+            continue
+        else:
             continue
 
         # Count turns (assistant messages)
         role = msg.get("role", "")
         if role == "assistant":
-            result["turns"] += 1
+            turn_count += 1
 
-        # Extract usage from message
+        # Extract per-turn usage
         usage = msg.get("usage", {})
         msg_input = usage.get("input_tokens", 0)
         msg_output = usage.get("output_tokens", 0)
-        result["input_tokens"] += msg_input
-        result["output_tokens"] += msg_output
+        cumulative_input += msg_input
+        cumulative_output += msg_output
 
         # Process tool calls
         content = msg.get("content", [])
@@ -119,7 +170,7 @@ def parse_transcript(path: str) -> dict:
                 if not first_edit_seen and is_code_edit_tool(tool_name):
                     first_edit_seen = True
                     cumulative_tokens_at_first_edit = (
-                        result["input_tokens"] + result["output_tokens"]
+                        cumulative_input + cumulative_output
                     )
 
                 # Detect backtracks: reading a file that was already read
@@ -133,18 +184,11 @@ def parse_transcript(path: str) -> dict:
                     else:
                         files_read.add(file_path)
 
-            # Tool result blocks -- estimate RTMX token contribution
-            if block.get("type") == "tool_result":
-                tool_use_id = block.get("tool_use_id", "")
-                # Check if this result corresponds to an RTMX tool
-                result_content = block.get("content", "")
-                if isinstance(result_content, list):
-                    result_content = " ".join(
-                        b.get("text", "") for b in result_content if isinstance(b, dict)
-                    )
-                if isinstance(result_content, str):
-                    # We attribute RTMX tokens in a second pass if needed
-                    pass
+    # Use per-turn sums if no result summary was found (old format / tests)
+    if not has_result_summary:
+        result["input_tokens"] = cumulative_input
+        result["output_tokens"] = cumulative_output
+        result["turns"] = turn_count
 
     result["total_tokens"] = result["input_tokens"] + result["output_tokens"]
 

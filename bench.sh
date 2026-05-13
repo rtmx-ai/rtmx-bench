@@ -175,9 +175,10 @@ execute_run() {
     local exit_code=0
     (cd "$workdir" && claude --model "$model" \
         -p "$prompt_text" \
-        --output-format json \
+        --output-format stream-json --verbose \
         --max-budget-usd 5.00 \
-        > "$result_dir/transcript.json" 2>"$result_dir/stderr.log") || exit_code=$?
+        --dangerously-skip-permissions \
+        > "$result_dir/transcript.jsonl" 2>"$result_dir/stderr.log") || exit_code=$?
 
     local end_time
     end_time=$(date +%s)
@@ -187,16 +188,16 @@ execute_run() {
     local input_tokens=0 output_tokens=0 total_tokens=0
     local rtmx_tokens=0 planning_tokens=0 execution_tokens=0
     local turns=0 backtracks=0 tool_calls_rtmx=0 tool_calls_other=0
-    if [[ -f "$result_dir/transcript.json" ]]; then
+    if [[ -f "$result_dir/transcript.jsonl" ]]; then
         local token_output
-        token_output=$(python3 "$SCRIPT_DIR/lib/parse_transcript.py" "$result_dir/transcript.json" 2>"$result_dir/token_detail.json" || echo "0 0 0 0 0 0 0 0 0 0")
+        token_output=$(python3 "$SCRIPT_DIR/lib/parse_transcript.py" "$result_dir/transcript.jsonl" 2>"$result_dir/token_detail.json" || echo "0 0 0 0 0 0 0 0 0 0")
         read -r input_tokens output_tokens total_tokens rtmx_tokens planning_tokens \
             execution_tokens turns backtracks tool_calls_rtmx tool_calls_other <<< "$token_output"
     fi
 
     # Run outcome verification
     local outcome="ERROR" tests_total=0 tests_passed=0 tests_failed=0
-    if [[ $exit_code -ne 0 && ! -f "$result_dir/transcript.json" ]]; then
+    if [[ $exit_code -ne 0 && ! -f "$result_dir/transcript.jsonl" ]]; then
         outcome="ERROR"
     else
         source "$SCRIPT_DIR/lib/verify.sh"
@@ -219,6 +220,9 @@ execute_run() {
         "$outcome" "$tests_total" "$tests_passed" "$tests_failed" \
         "$wall_clock" "$knowledge_entropy" \
         "results/raw/$experiment/$condition/$session_id"
+
+    # Preserve workdir for inspection
+    cp -r "$workdir" "$result_dir/workdir"
 
     echo "  Outcome: $outcome | Tokens: $total_tokens | Time: ${wall_clock}s"
 }
@@ -283,7 +287,7 @@ cmd_run() {
         setup_workdir "$experiment" "$condition" "$workdir"
         execute_run "$experiment" "$condition" "$i" "$model" "$workdir"
 
-        # Clean up working directory
+        # Clean up temp directory (workdir preserved in results/)
         rm -rf "$workdir"
     done
 
