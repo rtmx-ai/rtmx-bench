@@ -1,4 +1,4 @@
-.PHONY: setup test test-harness test-entropy test-data run-all analyze charts validate clean
+.PHONY: setup test test-harness test-entropy test-data run-all analyze charts validate verify clean clean-processes
 
 # Default model for experiments
 MODEL ?= claude-sonnet-4-20250514
@@ -13,10 +13,16 @@ setup:
 	@chmod +x bench.sh entropy/scan.sh lib/*.sh tests/*.sh 2>/dev/null || true
 	@echo "=== Setup complete ==="
 
-test: test-harness test-entropy test-staleness test-tokens test-analysis test-entropy-advanced
+test: test-harness test-treatment test-telemetry test-entropy test-staleness test-tokens test-analysis test-entropy-advanced
 
 test-harness:
 	@bash tests/test_harness.sh
+
+test-treatment:
+	@bash tests/test_treatment.sh
+
+test-telemetry:
+	@bash tests/test_telemetry.sh
 
 test-entropy:
 	@bash tests/test_entropy.sh
@@ -59,6 +65,18 @@ charts:
 
 entropy:
 	@bash entropy/scan.sh report $(REPO)
+
+verify:
+	@bash tests/collect_results.sh
+	@rtmx verify --results tests/results.json --update
+
+clean-processes:
+	@echo "Killing orphaned benchmark processes..."
+	@pkill -f "rtmx-bench" 2>/dev/null || true
+	@for port in 8080 3000 5000; do \
+		pid=$$(lsof -ti :$$port 2>/dev/null || true); \
+		if [ -n "$$pid" ]; then echo "  Killing process on port $$port (pid $$pid)"; kill $$pid 2>/dev/null || true; fi; \
+	done
 
 clean:
 	rm -rf results/raw/* results/charts/*

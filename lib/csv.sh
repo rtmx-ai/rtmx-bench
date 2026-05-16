@@ -117,8 +117,8 @@ ledger_validate() {
         # Validate outcome field (column 18)
         local outcome
         outcome=$(echo "$line" | cut -d, -f18)
-        if [[ "$outcome" != "PASS" && "$outcome" != "PARTIAL" && "$outcome" != "FAIL" && "$outcome" != "ERROR" ]]; then
-            echo "ERROR: Line $line_num: invalid outcome '$outcome' (must be PASS|PARTIAL|FAIL|ERROR)" >&2
+        if [[ "$outcome" != "PASS" && "$outcome" != "PARTIAL" && "$outcome" != "FAIL" && "$outcome" != "ERROR" && "$outcome" != "TIMEOUT" ]]; then
+            echo "ERROR: Line $line_num: invalid outcome '$outcome' (must be PASS|PARTIAL|FAIL|ERROR|TIMEOUT)" >&2
             errors=$((errors + 1))
         fi
 

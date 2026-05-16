@@ -12,6 +12,49 @@ DEFAULT_RUNS=5
 RESULTS_DIR="$SCRIPT_DIR/results"
 LEDGER="$RESULTS_DIR/summary.csv"
 
+# REQ-HARNESS-006: Process isolation globals
+CURRENT_WORKDIR=""
+CURRENT_PGID=""
+
+# Portable setsid: macOS lacks setsid, use perl POSIX::setsid()
+run_in_new_pgroup() {
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$@"
+    else
+        perl -e 'use POSIX qw(setsid); setsid(); exec @ARGV' -- "$@"
+    fi
+}
+
+# REQ-HARNESS-006: Cleanup function for process groups and temp dirs
+cleanup_run() {
+    local exit_code=$?
+    # Kill process group if active
+    if [[ -n "$CURRENT_PGID" ]]; then
+        kill -TERM -"$CURRENT_PGID" 2>/dev/null || true
+        sleep 1
+        kill -KILL -"$CURRENT_PGID" 2>/dev/null || true
+        CURRENT_PGID=""
+    fi
+    # Remove temp workdir if set and still exists
+    if [[ -n "$CURRENT_WORKDIR" && -d "$CURRENT_WORKDIR" ]]; then
+        rm -rf "$CURRENT_WORKDIR"
+        CURRENT_WORKDIR=""
+    fi
+    return $exit_code
+}
+
+# REQ-HARNESS-008: Kill orphaned processes from previous bench runs
+cleanup_orphans() {
+    for port in 8080 3000 5000; do
+        local pid
+        pid=$(lsof -ti :"$port" 2>/dev/null || true)
+        if [[ -n "$pid" ]]; then
+            echo "  [WARN] Port $port occupied by pid $pid, killing orphan"
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+}
+
 usage() {
     cat <<EOF
 Usage: bench.sh <command> [options]
@@ -51,6 +94,7 @@ load_experiment() {
     EXP_REPO=$(python3 -c "import yaml; print(yaml.safe_load(open('$config'))['repo'])" 2>/dev/null || echo "")
     EXP_TEST_CMD=$(python3 -c "import yaml; print(yaml.safe_load(open('$config'))['test_command'])" 2>/dev/null || echo "")
     EXP_SETUP_CMD=$(python3 -c "import yaml; print(yaml.safe_load(open('$config')).get('setup_command', ''))" 2>/dev/null || echo "")
+    EXP_BUDGET=$(python3 -c "import yaml; print(yaml.safe_load(open('$config')).get('max_budget_usd', '5.00'))" 2>/dev/null || echo "5.00")
     EXP_FIXTURE_DIR="$SCRIPT_DIR/fixtures/$name"
 
     if [[ -z "$EXP_TEST_CMD" ]]; then
@@ -158,12 +202,16 @@ YAML
   "mcpServers": {
     "rtmx": {
       "command": "$rtmx_bin",
-      "args": ["mcp-server"],
+      "args": ["mcp-server", "--stdio"],
       "cwd": "$workdir"
     }
   }
 }
 MCPJSON
+
+        # REQ-EXP-005: Generate CLAUDE.md from rtmx install (standardized prompt)
+        # Uses rtmx's own agent prompt template so we test rtmx as-shipped.
+        (cd "$workdir" && rtmx install --agents claude --force --yes 2>/dev/null)
     fi
 }
 
@@ -188,16 +236,20 @@ execute_run() {
     local start_time
     start_time=$(date +%s)
 
-    # Run Claude Code with the prompt (from the working directory)
+    # Run Claude Code with the prompt (REQ-HARNESS-006: in its own process group)
     local prompt_text
     prompt_text=$(cat "$prompt")
     local exit_code=0
-    (cd "$workdir" && claude --model "$model" \
-        -p "$prompt_text" \
+    run_in_new_pgroup bash -c "cd \"$workdir\" && claude --model \"$model\" \
+        -p \"$prompt_text\" \
         --output-format stream-json --verbose \
-        --max-budget-usd 5.00 \
+        --max-budget-usd \"$EXP_BUDGET\" \
         --dangerously-skip-permissions \
-        > "$result_dir/transcript.jsonl" 2>"$result_dir/stderr.log") || exit_code=$?
+        > \"$result_dir/transcript.jsonl\" 2>\"$result_dir/stderr.log\"" &
+    local claude_pid=$!
+    CURRENT_PGID=$claude_pid
+    wait "$claude_pid" || exit_code=$?
+    CURRENT_PGID=""
 
     local end_time
     end_time=$(date +%s)
@@ -227,7 +279,30 @@ execute_run() {
         tests_failed="$VERIFY_FAILED"
     fi
 
+    # REQ-ENTROPY-006: Compute knowledge entropy of agent's output
+    # REQ-ENTROPY-007: Exclude dependency directories from entropy measurement
     local knowledge_entropy=""
+    if [[ -d "$workdir" ]]; then
+        # Write .gitignore so git add -A excludes dependency directories
+        if [[ ! -f "$workdir/.gitignore" ]]; then
+            cat > "$workdir/.gitignore" <<'GITIGNORE'
+node_modules/
+.venv/
+venv/
+vendor/
+target/
+__pycache__/
+*.pyc
+.pytest_cache/
+GITIGNORE
+        fi
+        # Agent creates files from scratch -- init git for staleness scoring
+        if ! git -C "$workdir" rev-parse --git-dir &>/dev/null 2>&1; then
+            (cd "$workdir" && git init -q && git add -A && git commit -q -m "agent output") 2>/dev/null || true
+        fi
+        knowledge_entropy=$(bash "$SCRIPT_DIR/entropy/score.sh" scan "$workdir" 2>/dev/null \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('entropy_score',''))" 2>/dev/null || echo "")
+    fi
 
     # Append to ledger
     ledger_append "$LEDGER" \
@@ -297,20 +372,31 @@ cmd_run() {
         ledger_init "$LEDGER"
     fi
 
+    # REQ-HARNESS-006: Trap for cleanup on exit/interrupt
+    trap cleanup_run EXIT INT TERM
+
     echo "=== rtmx-bench: $experiment ($condition, $runs runs) ==="
     echo "Model: $model"
     echo ""
 
     for i in $(seq 1 "$runs"); do
+        # REQ-HARNESS-008: Clean up orphans from previous run
+        cleanup_orphans
+
         local workdir
         workdir=$(mktemp -d "/tmp/rtmx-bench-${experiment}-${condition}-XXXXXX")
+        CURRENT_WORKDIR="$workdir"
 
         setup_workdir "$experiment" "$condition" "$workdir"
         execute_run "$experiment" "$condition" "$i" "$model" "$workdir"
 
         # Clean up temp directory (workdir preserved in results/)
         rm -rf "$workdir"
+        CURRENT_WORKDIR=""
     done
+
+    # Reset trap
+    trap - EXIT INT TERM
 
     echo ""
     echo "=== Complete: $runs runs recorded to $LEDGER ==="

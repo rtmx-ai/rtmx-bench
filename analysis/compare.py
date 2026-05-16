@@ -5,8 +5,10 @@ REQ-HARNESS-005: Statistical analysis computes significance tests and
 amortization curves from experiment results.
 """
 
+import hashlib
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -34,8 +36,8 @@ def filter_pass(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_no_errors(df: pd.DataFrame) -> pd.DataFrame:
-    """Exclude ERROR outcomes (infrastructure failures)."""
-    return df[df["outcome"] != "ERROR"]
+    """Exclude ERROR and TIMEOUT outcomes (infrastructure failures)."""
+    return df[~df["outcome"].isin(["ERROR", "TIMEOUT"])]
 
 
 def compute_stats(series: pd.Series) -> dict:
@@ -154,6 +156,35 @@ def analyze_experiment(df: pd.DataFrame, experiment: str) -> dict:
                     float(total_backtracks / total_turns), 3
                 )
 
+    # REQ-ENTROPY-006: Entropy correlation analysis
+    if "knowledge_entropy" in exp_pass.columns:
+        entropy_data = exp_pass[
+            exp_pass["knowledge_entropy"].notna()
+            & (exp_pass["knowledge_entropy"] != "")
+        ].copy()
+        if len(entropy_data) >= 3:
+            entropy_vals = pd.to_numeric(
+                entropy_data["knowledge_entropy"], errors="coerce"
+            ).dropna()
+            token_vals = entropy_data.loc[entropy_vals.index, "total_tokens"]
+            if len(entropy_vals) >= 3:
+                from scipy.stats import spearmanr
+
+                corr, p_val = spearmanr(entropy_vals, token_vals)
+                result["entropy_correlation"] = {
+                    "spearman_r": round(float(corr), 3),
+                    "p_value": round(float(p_val), 4),
+                    "n": int(len(entropy_vals)),
+                }
+
+    # REQ-HARNESS-007: Report TIMEOUT runs separately
+    timeouts = {
+        "control": int(len(exp_df[(exp_df["condition"] == "control") & (exp_df["outcome"] == "TIMEOUT")])),
+        "treatment": int(len(exp_df[(exp_df["condition"] == "treatment") & (exp_df["outcome"] == "TIMEOUT")])),
+    }
+    if timeouts["control"] + timeouts["treatment"] > 0:
+        result["timeouts"] = timeouts
+
     # Warn if insufficient runs
     for cond in ["control", "treatment"]:
         n = result["runs"][cond]
@@ -226,13 +257,46 @@ def print_report(results: list[dict]):
         print()
 
 
+def compute_input_hash(ledger_path: str) -> str:
+    """REQ-DATA-004: Hash inputs for idempotency check."""
+    h = hashlib.sha256()
+    # Hash ledger content
+    h.update(Path(ledger_path).read_bytes())
+    # Hash this script source (code changes invalidate cache)
+    h.update(Path(__file__).read_bytes())
+    return h.hexdigest()
+
+
+def check_cache(output_path: Path, input_hash: str) -> bool:
+    """Return True if cached analysis matches current inputs."""
+    if not output_path.exists():
+        return False
+    try:
+        cached = json.loads(output_path.read_text())
+        if isinstance(cached, dict) and "meta" in cached:
+            return cached["meta"].get("input_hash") == input_hash
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return False
+
+
 def main():
-    ledger_path = sys.argv[1] if len(sys.argv) > 1 else "results/summary.csv"
+    force = "--force" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--force"]
+    ledger_path = args[0] if args else "results/summary.csv"
 
     if not Path(ledger_path).exists():
         print(f"ERROR: Ledger not found: {ledger_path}", file=sys.stderr)
         print("Run experiments first, then analyze.", file=sys.stderr)
         sys.exit(1)
+
+    output_path = Path(ledger_path).parent / "analysis.json"
+
+    # REQ-DATA-004: Idempotency check
+    input_hash = compute_input_hash(ledger_path)
+    if not force and check_cache(output_path, input_hash):
+        print("Analysis unchanged, skipping.")
+        sys.exit(0)
 
     df = load_ledger(ledger_path)
 
@@ -246,9 +310,16 @@ def main():
     # Human-readable report
     print_report(results)
 
-    # Machine-readable JSON
-    output_path = Path(ledger_path).parent / "analysis.json"
-    output_path.write_text(json.dumps(results, indent=2))
+    # Machine-readable JSON with metadata
+    output = {
+        "meta": {
+            "input_hash": input_hash,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "ledger": ledger_path,
+        },
+        "experiments": results,
+    }
+    output_path.write_text(json.dumps(output, indent=2, default=str))
     print(f"Analysis written to {output_path}")
 
 

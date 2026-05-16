@@ -1,0 +1,16 @@
+name: task-manager
+description: >
+  Multi-entity task management API with authentication, database
+  migrations, status state machine, and background jobs. Tests
+  whether RTMX reduces wasted exploration on complex dependency chains.
+repo: none
+test_command: |
+  if [ -f Makefile ]; then make test
+  elif [ -f package.json ]; then npm install --silent 2>/dev/null && npm test
+  elif [ -f go.mod ]; then go test ./...
+  elif [ -f requirements.txt ]; then pip3 install -q -r requirements.txt 2>/dev/null && python3 -m pytest -v
+  elif [ -f pyproject.toml ]; then pip3 install -q -e ".[test]" 2>/dev/null && python3 -m pytest -v
+  elif [ -f Cargo.toml ]; then cargo test
+  else echo "No test runner detected"; exit 1; fi
+setup_command: ""
+max_budget_usd: "10.00"

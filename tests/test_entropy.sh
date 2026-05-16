@@ -69,6 +69,42 @@ assert_eq "empty repo has zero scatter" "0" "$empty_score"
 
 rm -rf "$tmpdir" "$empty_repo"
 
+# --- Dependency Directory Exclusion Tests (REQ-ENTROPY-007) ---
+echo ""
+echo "=== Dependency Directory Exclusion Tests ==="
+
+dep_repo=$(mktemp -d)
+(cd "$dep_repo" && git init --quiet)
+echo "# Project" > "$dep_repo/README.md"
+# Simulate node_modules with README files (the observed bug)
+mkdir -p "$dep_repo/node_modules/express" "$dep_repo/node_modules/lodash"
+echo "# Express" > "$dep_repo/node_modules/express/README.md"
+echo "# Lodash" > "$dep_repo/node_modules/lodash/README.md"
+# Simulate .venv with README
+mkdir -p "$dep_repo/.venv/lib"
+echo "# venv" > "$dep_repo/.venv/README.md"
+# Simulate vendor with README
+mkdir -p "$dep_repo/vendor/pkg"
+echo "# Vendor" > "$dep_repo/vendor/pkg/README.md"
+(cd "$dep_repo" && git add -A && git commit -m "init" --quiet)
+
+dep_json=$(entropy_scan "$dep_repo")
+dep_score=$(echo "$dep_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['scatter_score'])")
+# Should find only the root README.md, not the ones in node_modules/.venv/vendor
+assert_eq "excludes dependency dir READMEs" "1" "$dep_score"
+
+# Verify specific paths are NOT in the file list
+dep_files=$(echo "$dep_json" | python3 -c "import sys,json; print(' '.join(f['path'] for f in json.load(sys.stdin)['files']))")
+echo "$dep_files" | grep -q "node_modules" && {
+    echo "  [FAIL] node_modules files should be excluded"
+    FAIL=$((FAIL + 1))
+} || {
+    echo "  [PASS] node_modules excluded from results"
+    PASS=$((PASS + 1))
+}
+
+rm -rf "$dep_repo"
+
 # --- Patterns File Tests ---
 echo ""
 echo "=== Patterns File Tests ==="

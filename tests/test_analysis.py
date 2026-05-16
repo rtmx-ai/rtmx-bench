@@ -182,6 +182,98 @@ def test_error_outcomes_excluded():
     print("  [PASS] error_outcomes_excluded")
 
 
+def test_timeout_outcomes_excluded():
+    """REQ-HARNESS-007: TIMEOUT outcomes excluded from token analysis."""
+    rows = [
+        make_row("control", 10000, "PASS"),
+        make_row("treatment", 8000, "PASS"),
+        make_row("treatment", 99999, "TIMEOUT"),
+    ]
+    path = create_test_ledger(rows)
+    df = compare.load_ledger(path)
+    result = compare.analyze_experiment(df, "test-exp")
+
+    # TIMEOUT should be excluded from token stats (like ERROR)
+    assert result["total_tokens"]["treatment"]["n"] == 1
+    assert "timeouts" in result
+    assert result["timeouts"]["treatment"] == 1
+    print("  [PASS] timeout_outcomes_excluded")
+
+
+def test_idempotency_cache():
+    """REQ-DATA-004: Analysis skips when inputs unchanged."""
+    rows = [
+        make_row("control", 10000),
+        make_row("treatment", 8000),
+    ]
+    path = create_test_ledger(rows)
+    output_path = Path(path).parent / "analysis.json"
+
+    input_hash = compare.compute_input_hash(path)
+
+    # No cache yet -- should not match
+    assert not compare.check_cache(output_path, input_hash)
+
+    # Write cache with matching hash
+    output_path.write_text(json.dumps({
+        "meta": {"input_hash": input_hash},
+        "experiments": [],
+    }))
+    assert compare.check_cache(output_path, input_hash)
+
+    # Different hash should not match
+    assert not compare.check_cache(output_path, "wrong_hash")
+    print("  [PASS] idempotency_cache")
+
+
+def test_chart_generation():
+    """REQ-DATA-003: Charts generated from experiment data."""
+    import importlib
+    plot = importlib.import_module("plot")
+
+    rows = []
+    for i in range(5):
+        rows.append(make_row("control", 10000 + i * 1000))
+        rows.append(make_row("treatment", 8000 + i * 1000))
+    path = create_test_ledger(rows)
+
+    output_dir = Path(path).parent / "charts"
+    output_dir.mkdir()
+
+    df = plot.load_data(path)
+    # Just verify the chart functions don't crash
+    plot.chart_token_comparison(df, output_dir)
+    plot.chart_completion_rate(df, output_dir)
+
+    charts = list(output_dir.glob("*.png"))
+    assert len(charts) >= 2, f"Expected >= 2 charts, got {len(charts)}"
+    print("  [PASS] chart_generation")
+
+
+def test_entropy_correlation():
+    """REQ-ENTROPY-006: Spearman correlation computed when entropy data exists."""
+    rows = [
+        make_row("control", 10000),
+        make_row("control", 12000),
+        make_row("control", 14000),
+        make_row("treatment", 8000),
+        make_row("treatment", 9000),
+        make_row("treatment", 10000),
+    ]
+    # Add entropy values
+    for i, r in enumerate(rows):
+        r["knowledge_entropy"] = str(3.0 + i * 0.5)
+
+    path = create_test_ledger(rows)
+    df = compare.load_ledger(path)
+    result = compare.analyze_experiment(df, "test-exp")
+
+    assert "entropy_correlation" in result
+    assert "spearman_r" in result["entropy_correlation"]
+    assert result["entropy_correlation"]["n"] == 6
+    print("  [PASS] entropy_correlation")
+
+
 def main():
     print("=== Statistical Analysis Tests ===")
     tests = [
@@ -193,6 +285,10 @@ def main():
         test_analyze_experiment,
         test_analyze_insufficient_runs,
         test_error_outcomes_excluded,
+        test_timeout_outcomes_excluded,
+        test_idempotency_cache,
+        test_chart_generation,
+        test_entropy_correlation,
     ]
 
     passed = 0

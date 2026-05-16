@@ -25,18 +25,34 @@ entropy_scan() {
     local intent_files=()
     local dirs_seen=()
 
+    # REQ-ENTROPY-007: Dependency directories to exclude from scanning
+    local exclude_dirs=(node_modules .venv venv vendor target __pycache__ .git)
+
     # Read patterns and find matching files
     while IFS= read -r pattern; do
         # Skip comments and empty lines
         [[ -z "$pattern" || "$pattern" == \#* ]] && continue
 
-        # Use find with -path for glob patterns, -name for simple patterns
         # Use git ls-files to respect .gitignore; fall back to find for non-git dirs
         local find_cmd
         if git -C "$repo_path" rev-parse --git-dir &>/dev/null; then
-            find_cmd() { cd "$repo_path" && git ls-files -z -- "$pattern" 2>/dev/null; }
+            find_cmd() {
+                cd "$repo_path" && git ls-files -z -- "$pattern" 2>/dev/null \
+                    | while IFS= read -r -d '' f; do
+                        local skip=0
+                        for excl in "${exclude_dirs[@]}"; do
+                            case "$f" in "$excl/"*|*"/$excl/"*) skip=1; break ;; esac
+                        done
+                        [[ $skip -eq 0 ]] && printf '%s\0' "$f"
+                    done
+            }
         else
-            find_cmd() { cd "$repo_path" && find . -path "./.git" -prune -o -path "$pattern" -print0 2>/dev/null; }
+            # Build find prune arguments for dependency directories
+            local prune_args=()
+            for excl in "${exclude_dirs[@]}"; do
+                prune_args+=(-path "./$excl" -prune -o)
+            done
+            find_cmd() { cd "$repo_path" && find . "${prune_args[@]}" -path "$pattern" -print0 2>/dev/null; }
         fi
 
         while IFS= read -r -d '' file; do

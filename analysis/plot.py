@@ -4,6 +4,7 @@
 REQ-DATA-003: Publication-quality charts generated from experiment results.
 """
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -266,8 +267,30 @@ def chart_amortization(df: pd.DataFrame, output_dir: Path):
     print("  [OK] amortization")
 
 
+def charts_up_to_date(ledger_path: str, output_dir: Path) -> bool:
+    """REQ-DATA-004: Check if charts are newer than inputs."""
+    ledger = Path(ledger_path)
+    analysis = ledger.parent / "analysis.json"
+    if not ledger.exists():
+        return False
+
+    # Find oldest chart file
+    chart_files = list(output_dir.glob("*.png")) + list(output_dir.glob("*.svg"))
+    if not chart_files:
+        return False
+
+    oldest_chart = min(f.stat().st_mtime for f in chart_files)
+    newest_input = ledger.stat().st_mtime
+    if analysis.exists():
+        newest_input = max(newest_input, analysis.stat().st_mtime)
+
+    return oldest_chart > newest_input
+
+
 def main():
-    ledger_path = sys.argv[1] if len(sys.argv) > 1 else "results/summary.csv"
+    force = "--force" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--force"]
+    ledger_path = args[0] if args else "results/summary.csv"
 
     if not Path(ledger_path).exists():
         print(f"ERROR: Ledger not found: {ledger_path}", file=sys.stderr)
@@ -275,6 +298,11 @@ def main():
 
     output_dir = Path("results/charts")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # REQ-DATA-004: Skip if charts are up to date
+    if not force and charts_up_to_date(ledger_path, output_dir):
+        print("Charts up to date, skipping.")
+        sys.exit(0)
 
     df = load_data(ledger_path)
     if len(df) == 0:
