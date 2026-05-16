@@ -1,0 +1,1 @@
+session_id,timestamp,experiment,condition,run_number,model,prompt_sha256,input_tokens,output_tokens,total_tokens,rtmx_tokens,planning_tokens,execution_tokens,turns,backtracks,tool_calls_rtmx,tool_calls_other,outcome,tests_total,tests_passed,tests_failed,wall_clock_seconds,knowledge_entropy,transcript_path
