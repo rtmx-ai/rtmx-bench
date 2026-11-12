@@ -1,4 +1,16 @@
-# rtmx-bench
+# rtmx-bench (deprecated)
+
+> **Deprecated.** This repository is archived. The canonical public benchmark
+> for structured-intent / closed-loop agent evaluation is
+> **[intent-bench](https://github.com/intent-bench/intent-bench)**
+> ([site](https://intent-bench.github.io/intent-bench/)).
+>
+> Do not open new issues or PRs here. Cite and contribute on intent-bench.
+
+Historical README follows for archival context only.
+
+---
+
 
 Benchmark harness for measuring whether structured requirements traceability
 reduces AI agent token consumption per completed software engineering task.
